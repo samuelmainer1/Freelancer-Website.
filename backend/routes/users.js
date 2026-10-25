@@ -32,6 +32,7 @@ function profilePayload(row) {
     avatar: row.avatar || null,
     portfolio: row.portfolio || null,
     is_public: row.is_public == null ? 1 : Number(row.is_public),
+    is_verified: row.is_verified == null ? 0 : Number(row.is_verified),
     member_since: row.created_at,
   };
 }
@@ -132,6 +133,53 @@ router.put('/me', requireAuth, (req, res) => {
   res.json({ profile: profilePayload(row) });
 });
 
+// Freelancer track record: money earned, jobs won, bid win-rate and the rating
+// spread shown as a 5→1 star breakdown on the profile.
+function freelancerStats(userId) {
+  const bids = db
+    .prepare(
+      `SELECT
+         SUM(CASE WHEN status = 'pending'  THEN 1 ELSE 0 END) AS active_bids,
+         SUM(CASE WHEN status = 'accepted' THEN 1 ELSE 0 END) AS won_jobs,
+         SUM(CASE WHEN status = 'rejected' THEN 1 ELSE 0 END) AS rejected_bids,
+         COUNT(*)                                              AS total_bids
+       FROM bids WHERE freelancer_id = ?`
+    )
+    .get(userId);
+
+  // Earnings = value of every awarded job. There is no payments table yet, so
+  // this is the contracted amount, which is the honest number to show.
+  const earned = db
+    .prepare(
+      `SELECT COALESCE(SUM(b.amount), 0) AS total
+       FROM bids b JOIN jobs j ON j.id = b.job_id
+       WHERE b.freelancer_id = ? AND b.status = 'accepted'`
+    )
+    .get(userId).total;
+
+  const totalBids = bids.total_bids || 0;
+  const wonJobs = bids.won_jobs || 0;
+
+  const breakdown = { 5: 0, 4: 0, 3: 0, 2: 0, 1: 0 };
+  db.prepare(
+    'SELECT rating, COUNT(*) AS c FROM reviews WHERE reviewee_id = ? GROUP BY rating'
+  )
+    .all(userId)
+    .forEach((r) => {
+      breakdown[r.rating] = r.c;
+    });
+
+  return {
+    active_bids: bids.active_bids || 0,
+    won_jobs: wonJobs,
+    total_bids: totalBids,
+    rejected_bids: bids.rejected_bids || 0,
+    earned_total: Math.round(earned * 100) / 100,
+    win_rate: totalBids ? Math.round((wonJobs / totalBids) * 100) : null,
+    rating_breakdown: breakdown,
+  };
+}
+
 // GET /api/users/:id — public professional profile + activity
 router.get('/:id', (req, res) => {
   const id = Number(req.params.id);
@@ -151,18 +199,11 @@ router.get('/:id', (req, res) => {
     return res.json({ profile, jobs, ...reviewsFor(row.id) });
   }
 
-  // Freelancer: bid stats + recent won jobs
-  const stats = db
-    .prepare(
-      `SELECT
-         SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) AS active_bids,
-         SUM(CASE WHEN status = 'accepted' THEN 1 ELSE 0 END) AS won_jobs
-       FROM bids WHERE freelancer_id = ?`
-    )
-    .get(row.id);
+  // Freelancer: track record + recent won jobs
   const won_jobs = db
     .prepare(
-      `SELECT j.id, j.title, j.status, j.created_at, u.name AS client_name
+      `SELECT j.id, j.title, j.status, j.created_at, u.name AS client_name,
+              b.amount, b.days
        FROM jobs j
        JOIN bids b ON b.job_id = j.id
        JOIN users u ON u.id = j.client_id
@@ -174,7 +215,7 @@ router.get('/:id', (req, res) => {
 
   res.json({
     profile,
-    stats: { active_bids: stats.active_bids || 0, won_jobs: stats.won_jobs || 0 },
+    stats: freelancerStats(row.id),
     won_jobs,
     ...reviewsFor(row.id),
   });

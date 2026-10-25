@@ -12,6 +12,7 @@ import EditProfile from './pages/EditProfile.jsx';
 import Freelancers from './pages/Freelancers.jsx';
 import Messages, { Inbox } from './pages/Messages.jsx';
 import EditJob from './pages/EditJob.jsx';
+import BuyConnects from './pages/BuyConnects.jsx';
 import { useAuth } from './AuthContext.jsx';
 
 function RequireRole({ role, children }) {
@@ -89,6 +90,14 @@ export default function App() {
             element={
               <RequireRole role="freelancer">
                 <MyBids />
+              </RequireRole>
+            }
+          />
+          <Route
+            path="/connects"
+            element={
+              <RequireRole role="freelancer">
+                <BuyConnects />
               </RequireRole>
             }
           />

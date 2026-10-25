@@ -109,7 +109,27 @@ function ensureColumn(table, column, def) {
   ['avatar', 'TEXT'],
   ['portfolio', 'TEXT'],
   ['is_public', 'INTEGER DEFAULT 1'],
+  // Bid credits ("Connects"). New freelancers start with a few so they can bid
+  // immediately; each bid on a new job costs one and they top up by buying more.
+  ['connect_balance', 'INTEGER DEFAULT 10'],
+  // Admin-granted trust badge (ID check, etc). Read-only for users.
+  ['is_verified', 'INTEGER DEFAULT 0'],
 ].forEach(([col, type]) => ensureColumn('users', col, type));
+
+// Connects purchases. Kept as a ledger rather than just bumping the balance so
+// there is an auditable trail of what was bought, when and for how much.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS connect_purchases (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    package_id  TEXT NOT NULL,
+    connects    INTEGER NOT NULL CHECK (connects > 0),
+    amount_usd  REAL NOT NULL CHECK (amount_usd >= 0),
+    created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE INDEX IF NOT EXISTS idx_connect_purchases_user
+    ON connect_purchases(user_id, created_at);
+`);
 
 // Migrate older reviews tables that had `bid_id ... UNIQUE` (one review per bid)
 // to `UNIQUE (bid_id, reviewer_id)` so client and freelancer can each leave one.
@@ -359,5 +379,32 @@ function seed() {
     5,
     'Sarah gave a crystal-clear brief, quick feedback and paid promptly. A perfect client to work with.'
   );
+
+  // A couple of earlier completed jobs so the profile stats (earnings, jobs
+  // done, win rate) have something real to show on a fresh database.
+  const history = [
+    [sarah, 'Shopify theme tweaks for the subscription page', 'Small set of Liquid template changes to the subscription flow plus a mobile QA pass.', 'Web Development', 700, 1400, '2026-06-18', joe, 1180, 12, 5,
+      'Fast, careful work and he flagged two bugs we did not know about.'],
+    [alice, 'Internal analytics dashboard (phase 1)', 'First slice of an internal KPI dashboard: charts, date filters and CSV export.', 'Data & AI', 2500, 4000, '2026-07-30', joe, 3200, 24, 4,
+      'Solid delivery. Timeline slipped by two days but he communicated early and made it right.'],
+    [alice, 'Marketing site refresh — brand kit to build', 'Apply new brand guidelines across the marketing site. Figma file is production ready.', 'Design', 900, 1600, '2026-08-21', maya, 1350, 16, 5,
+      'Maya is a brilliant designer and extremely organised. The handoff was flawless.'],
+  ];
+  for (const [client, title, description, category, bmin, bmax, deadline, who, amount, days, rating, comment] of history) {
+    const jobId = insJob.run(client, title, description, category, bmin, bmax, deadline).lastInsertRowid;
+    const bidId = insBid.run(jobId, who, amount, days, 'Delivered end to end with documentation and a handover call.').lastInsertRowid;
+    db.prepare("UPDATE bids SET status = 'accepted' WHERE id = ?").run(bidId);
+    db.prepare("UPDATE jobs SET status = 'awarded' WHERE id = ?").run(jobId);
+    db.prepare(
+      `INSERT INTO reviews (job_id, bid_id, reviewer_id, reviewee_id, rating, comment)
+       VALUES (?, ?, ?, ?, ?, ?)`
+    ).run(jobId, bidId, client, who, rating, comment);
+  }
+
+  // Verified badges: identity-checked accounts get the trust mark. This is an
+  // admin action in the real product, not something users can set themselves.
+  db.prepare(
+    "UPDATE users SET is_verified = 1 WHERE email IN ('joe@demo.com', 'sarah@demo.com')"
+  ).run();
 }
 seed();

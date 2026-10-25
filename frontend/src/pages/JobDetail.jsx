@@ -16,6 +16,22 @@ export default function JobDetail() {
   const [error, setError] = useState('');
   const [notice, setNotice] = useState(null); // { type: 'ok'|'err', text }
   const [busy, setBusy] = useState(false);
+  const [connectBalance, setConnectBalance] = useState(null);
+
+  // Freelancers need to know the Connect cost before they fill in a proposal.
+  useEffect(() => {
+    if (!token || user?.role !== 'freelancer') {
+      setConnectBalance(null);
+      return;
+    }
+    let alive = true;
+    api('/connects', { token })
+      .then((d) => alive && setConnectBalance(d.balance))
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [token, user?.role]);
 
   const load = useCallback(async () => {
     try {
@@ -62,10 +78,13 @@ export default function JobDetail() {
     setBusy(true);
     setNotice(null);
     try {
-      await api(`/jobs/${id}/bids`, { method: 'POST', token, body: payload });
+      const d = await api(`/jobs/${id}/bids`, { method: 'POST', token, body: payload });
+      if (typeof d.connect_balance === 'number') setConnectBalance(d.connect_balance);
       setNotice({
         type: 'ok',
-        text: myBid ? 'Your bid has been updated.' : 'Your bid has been placed!',
+        text: myBid
+          ? 'Your bid has been updated.'
+          : `Your bid has been placed!${d.charged_connects ? ` ${d.charged_connects} Connect used.` : ''}`,
       });
       await load();
     } catch (err) {
@@ -201,7 +220,14 @@ export default function JobDetail() {
             </div>
           )}
 
-          {canBid && <BidForm myBid={myBid} busy={busy} onSubmit={submitBid} />}
+          {canBid && (
+            <BidForm
+              myBid={myBid}
+              busy={busy}
+              onSubmit={submitBid}
+              connectBalance={connectBalance}
+            />
+          )}
 
           {myBid && !canBid && (
             <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">

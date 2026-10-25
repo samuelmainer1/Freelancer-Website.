@@ -21,6 +21,20 @@ export function budgetRange(min, max) {
   return 'Negotiable';
 }
 
+// Compact money for stat tiles: $12.5k / $1.2M. Keeps big earnings readable.
+export function compactMoney(n) {
+  const v = Number(n);
+  if (!Number.isFinite(v)) return '$0';
+  if (Math.abs(v) >= 1_000_000) return '$' + (v / 1_000_000).toFixed(1).replace(/\.0$/, '') + 'M';
+  if (Math.abs(v) >= 10_000) return '$' + (v / 1000).toFixed(1).replace(/\.0$/, '') + 'k';
+  return money(v);
+}
+
+// Picks the singular or plural form: pluralize(1,'bid','bids') -> 'bid'
+export function pluralize(n, one, many) {
+  return n === 1 ? one : many;
+}
+
 // Formats SQLite UTC timestamps ("YYYY-MM-DD HH:MM:SS") as relative time
 export function timeAgo(sqlUtc) {
   if (!sqlUtc) return '';

@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { db } from '../db.js';
 import { requireAuth, requireRole } from '../middleware/auth.js';
+import { BID_COST, connectBalance, spendConnects } from './connects.js';
 
 const router = Router();
 
@@ -24,9 +25,37 @@ router.post('/jobs/:id/bids', requireAuth, requireRole('freelancer'), (req, res)
     return res.status(400).json({ error: 'Please write a short proposal.' });
   }
 
-  // One bid per freelancer per job — re-bidding updates it
-  const result = db
-    .prepare(
+  // One bid per freelancer per job — re-bidding updates it.
+  const existing = db
+    .prepare('SELECT id FROM bids WHERE job_id = ? AND freelancer_id = ?')
+    .get(job.id, req.user.id);
+
+  // Connects are only spent on a *new* bid; editing an existing proposal is
+  // free so freelancers can keep their pitch sharp.
+  if (!existing) {
+    const balance = connectBalance(req.user.id);
+    if (balance < BID_COST) {
+      return res.status(402).json({
+        error: `You have no Connects left. Each new bid costs ${BID_COST} Connect, and you can buy more to keep applying.`,
+        code: 'INSUFFICIENT_CONNECTS',
+        required_connects: BID_COST,
+        balance,
+      });
+    }
+  }
+
+  db.exec('BEGIN');
+  try {
+    if (!existing && !spendConnects(req.user.id, BID_COST)) {
+      db.exec('ROLLBACK');
+      return res.status(402).json({
+        error: 'You have no Connects left. Buy more to keep bidding.',
+        code: 'INSUFFICIENT_CONNECTS',
+        required_connects: BID_COST,
+        balance: connectBalance(req.user.id),
+      });
+    }
+    db.prepare(
       `INSERT INTO bids (job_id, freelancer_id, amount, days, proposal)
        VALUES (?, ?, ?, ?, ?)
        ON CONFLICT(job_id, freelancer_id) DO UPDATE SET
@@ -34,10 +63,23 @@ router.post('/jobs/:id/bids', requireAuth, requireRole('freelancer'), (req, res)
          days = excluded.days,
          proposal = excluded.proposal,
          created_at = datetime('now')`
-    )
-    .run(job.id, req.user.id, amt, d, String(proposal).trim());
-  const bid = db.prepare('SELECT * FROM bids WHERE id = ?').get(result.lastInsertRowid);
-  res.status(201).json({ bid });
+    ).run(job.id, req.user.id, amt, d, String(proposal).trim());
+    db.exec('COMMIT');
+  } catch (e) {
+    db.exec('ROLLBACK');
+    throw e;
+  }
+
+  // Must not rely on lastInsertRowid here: upserts report the last *inserted*
+  // row globally, so updating an existing bid would return someone else's id.
+  const saved = db
+    .prepare('SELECT * FROM bids WHERE job_id = ? AND freelancer_id = ?')
+    .get(job.id, req.user.id);
+  res.status(201).json({
+    bid: saved,
+    charged_connects: existing ? 0 : BID_COST,
+    connect_balance: connectBalance(req.user.id),
+  });
 });
 
 // GET /api/jobs/:id/bids  (auth) — owner sees all bids, freelancers see their own

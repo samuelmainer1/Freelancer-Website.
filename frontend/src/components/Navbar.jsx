@@ -3,6 +3,7 @@ import { Link, NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../AuthContext.jsx';
 import { api } from '../api';
 import Avatar from './Avatar.jsx';
+import ConnectPill from './ConnectPill.jsx';
 
 const linkClass = ({ isActive }) =>
   'rounded-full px-3 py-1.5 text-sm font-medium transition ' +
@@ -90,6 +91,7 @@ export default function Navbar() {
         </nav>
 
         <div className="ml-auto flex items-center gap-2">
+          <ConnectPill />
           {user ? (
             <>
               <span className="hidden items-center gap-2 sm:flex">

@@ -6,3 +6,7 @@ frontend/dist/
 *.pid
 *.log
 .DS_Store
+
+# Frontend env files
+frontend/.env
+frontend/.env.production

@@ -49,4 +49,9 @@ describe('api', () => {
     });
     await expect(api('/jobs')).rejects.toThrow('Request failed (500)');
   });
+
+  it('uses a relative /api path so a same-origin deploy works without config', async () => {
+    await api('/jobs');
+    expect(global.fetch.mock.calls[0][0]).toBe('/api/jobs');
+  });
 });

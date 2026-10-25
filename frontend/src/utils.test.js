@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, afterEach } from 'vitest';
-import { budgetRange, formatDate, money, timeAgo } from './utils.js';
+import { budgetRange, compactMoney, formatDate, money, pluralize, timeAgo } from './utils.js';
 
 describe('money', () => {
   it('formats with thousands separators and a dollar sign', () => {
@@ -71,5 +71,31 @@ describe('formatDate', () => {
 
   it('returns an empty string for missing input', () => {
     expect(formatDate(null)).toBe('');
+  });
+});
+
+describe('compactMoney', () => {
+  it('keeps small amounts exact', () => {
+    expect(compactMoney(950)).toBe('$950');
+    expect(compactMoney(0)).toBe('$0');
+  });
+
+  it('abbreviates thousands and millions for stat tiles', () => {
+    expect(compactMoney(12500)).toBe('$12.5k');
+    expect(compactMoney(20000)).toBe('$20k');
+    expect(compactMoney(1_250_000)).toBe('$1.3M');
+  });
+
+  it('falls back to $0 for junk input', () => {
+    expect(compactMoney(null)).toBe('$0');
+    expect(compactMoney('abc')).toBe('$0');
+  });
+});
+
+describe('pluralize', () => {
+  it('picks the singular form only for exactly one', () => {
+    expect(pluralize(1, 'bid', 'bids')).toBe('bid');
+    expect(pluralize(0, 'bid', 'bids')).toBe('bids');
+    expect(pluralize(2, 'bid', 'bids')).toBe('bids');
   });
 });

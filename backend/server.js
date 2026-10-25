@@ -10,6 +10,7 @@ import bidRoutes from './routes/bids.js';
 import userRoutes from './routes/users.js';
 import reviewRoutes from './routes/reviews.js';
 import messageRoutes from './routes/messages.js';
+import connectRoutes from './routes/connects.js';
 
 const app = express();
 
@@ -81,6 +82,7 @@ app.use('/api/jobs', jobRoutes);
 app.use('/api', bidRoutes);
 app.use('/api', reviewRoutes);
 app.use('/api', messageRoutes);
+app.use('/api', connectRoutes);
 app.use('/api/users', userRoutes);
 
 app.use((_req, res) => res.status(404).json({ error: 'Not found' }));

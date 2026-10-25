@@ -2,16 +2,19 @@ import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { api } from '../api';
 import { useAuth } from '../AuthContext.jsx';
-import { budgetRange, formatDate, timeAgo } from '../utils.js';
+import { budgetRange, compactMoney, formatDate, money, pluralize, timeAgo } from '../utils.js';
 import Avatar from '../components/Avatar.jsx';
 import Stars from '../components/Stars.jsx';
 import StatusPill from '../components/StatusPill.jsx';
+import VerifiedBadge from '../components/VerifiedBadge.jsx';
+import { RatingBreakdown, StatTile } from '../components/ProfileStats.jsx';
 
 export default function Profile() {
   const { id } = useParams();
-  const { user } = useAuth();
+  const { user, token } = useAuth();
   const [data, setData] = useState(null);
   const [error, setError] = useState('');
+  const [connects, setConnects] = useState(null);
 
   useEffect(() => {
     let alive = true;
@@ -24,6 +27,22 @@ export default function Profile() {
       alive = false;
     };
   }, [id]);
+
+  // Connects are private, so the balance is only fetched for my own profile.
+  const isOwnProfile = user != null && String(user.id) === String(id);
+  useEffect(() => {
+    if (!isOwnProfile || !token) {
+      setConnects(null);
+      return;
+    }
+    let alive = true;
+    api('/connects', { token })
+      .then((d) => alive && setConnects(d))
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [isOwnProfile, token]);
 
   if (error) {
     return (
@@ -41,6 +60,7 @@ export default function Profile() {
 
   const p = data.profile;
   const isMe = user?.id === p.id;
+  const stats = data.stats;
 
   return (
     <div className="mx-auto max-w-4xl px-4 py-8">
@@ -51,6 +71,7 @@ export default function Profile() {
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-2">
               <h1 className="text-2xl font-bold text-slate-900">{p.name}</h1>
+              <VerifiedBadge verified={p.is_verified} size="lg" />
               <span
                 className={`rounded-full px-2 py-0.5 text-xs font-semibold uppercase tracking-wide ${
                   p.role === 'client' ? 'bg-violet-100 text-violet-700' : 'bg-sky-100 text-sky-700'
@@ -186,20 +207,87 @@ export default function Profile() {
         </section>
       ) : (
         <section className="mt-6 space-y-4">
-          <div className="grid gap-4 sm:grid-cols-2">
-            <div className="rounded-2xl border border-slate-200 bg-white p-5 text-center shadow-sm">
-              <div className="text-3xl font-extrabold text-emerald-600">
-                {data.stats.active_bids}
-              </div>
-              <div className="mt-1 text-sm text-slate-500">Active bids</div>
-            </div>
-            <div className="rounded-2xl border border-slate-200 bg-white p-5 text-center shadow-sm">
-              <div className="text-3xl font-extrabold text-emerald-600">
-                {data.stats.won_jobs}
-              </div>
-              <div className="mt-1 text-sm text-slate-500">Jobs won</div>
-            </div>
+          {/* Track record */}
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <StatTile
+              label="Total earned"
+              value={compactMoney(stats.earned_total)}
+              hint={`${stats.won_jobs} ${pluralize(stats.won_jobs, 'job', 'jobs')} completed`}
+              accent="text-emerald-600"
+            />
+            <StatTile
+              label="Jobs done"
+              value={stats.won_jobs}
+              hint={`${stats.total_bids} ${pluralize(stats.total_bids, 'bid', 'bids')} placed`}
+            />
+            <StatTile
+              label="Win rate"
+              value={stats.win_rate == null ? '—' : `${stats.win_rate}%`}
+              hint="Bids accepted"
+            />
+            <StatTile
+              label="Active bids"
+              value={stats.active_bids}
+              hint="Awaiting a decision"
+              accent="text-sky-600"
+            />
           </div>
+
+          {/* Own profile: Connects balance + how to get more */}
+          {isMe && connects && (
+            <div className="rounded-2xl border border-emerald-200 bg-gradient-to-br from-emerald-50 to-sky-50 p-5">
+              <div className="flex flex-wrap items-center gap-4">
+                <div>
+                  <div className="text-xs font-semibold uppercase tracking-wide text-emerald-800/70">
+                    Connects left
+                  </div>
+                  <div
+                    className={`text-3xl font-extrabold ${
+                      connects.balance < connects.bid_cost ? 'text-rose-600' : 'text-emerald-700'
+                    }`}
+                    data-testid="connects-left"
+                  >
+                    {connects.balance}
+                  </div>
+                </div>
+                <div className="min-w-0 flex-1 text-xs text-slate-600">
+                  <p>
+                    Each bid on a new job costs <strong>{connects.bid_cost}</strong> Connect. Updating a
+                    bid you already placed is free.
+                  </p>
+                  <p className="mt-0.5">
+                    {connects.total_spent} {pluralize(connects.total_spent, 'bid', 'bids')} placed ·{' '}
+                    {connects.purchases.length}{' '}
+                    {pluralize(connects.purchases.length, 'purchase', 'purchases')}
+                  </p>
+                </div>
+                <Link
+                  to="/connects"
+                  className="rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-700"
+                >
+                  {connects.balance < connects.bid_cost ? 'Buy Connects' : 'Buy more'}
+                </Link>
+              </div>
+            </div>
+          )}
+
+          {/* Rating distribution, so a 4.8 does not hide whether it is 4s or 5s */}
+          {data.count > 0 && (
+            <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+              <div className="flex flex-wrap items-center gap-4">
+                <div className="text-center">
+                  <div className="text-4xl font-extrabold text-slate-900">{data.average}</div>
+                  <Stars value={data.average} />
+                  <div className="mt-0.5 text-xs text-slate-500">
+                    {data.count} {pluralize(data.count, 'review', 'reviews')}
+                  </div>
+                </div>
+                <div className="min-w-[200px] flex-1">
+                  <RatingBreakdown breakdown={stats.rating_breakdown} count={data.count} />
+                </div>
+              </div>
+            </div>
+          )}
 
           <div>
             <h2 className="text-lg font-bold text-slate-900">Recent won work</h2>
@@ -225,7 +313,14 @@ export default function Profile() {
                       Client: {j.client_name} · {timeAgo(j.created_at)}
                     </div>
                   </div>
-                  <StatusPill status={j.status} />
+                  <div className="flex items-center gap-3">
+                    {j.amount != null && (
+                      <span className="text-sm font-bold text-emerald-700">
+                        {money(j.amount)}
+                      </span>
+                    )}
+                    <StatusPill status={j.status} />
+                  </div>
                 </div>
               ))}
             </div>
